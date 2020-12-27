@@ -1,7 +1,7 @@
 echo -n "Lineage reconstruction started:  "
 date
 
-if [ $# -ne 24 ]; then
+if [ $# -ne 28 ]; then
   echo "args:$#" 1>&2
   echo "SUPERVISE.sh: wrong number of arguments!" 1>&2
   exit 1
@@ -23,28 +23,37 @@ OPTION=${13}
 MODEL=${14}
 QSUB_OPTION=${15}
 INIT_QSUB_OPTION=${16}
-SEED=${17}
-JOB_NAME=${18}
-PLACEMENT_METHOD=${19}
-ALIGNED=${20}
-max_num_of_iterations=${21}
-extraction_size=${22}
-careful=${23}
-FASTA_or_EDIT=${24}
+ASSEMBLY_QSUB_OPTION=${17}
+SEED=${18}
+JOB_NAME=${19}
+PLACEMENT_METHOD=${20}
+ALIGNED=${21}
+max_num_of_iterations=${22}
+extraction_size=${23}
+careful=${24}
+FASTA_or_EDIT=${25}
+GZIP_INTERMEDIATE=${26}
+SEQ_NUM_FILE=${27}
+benchmark=${28}
 ROOT_DIR=${DATA_DIR}/${exp_num}
+
 
 
 # QSUB OPTION
 if [ -z "$INIT_QSUB_OPTION" ]; then
   INIT_QSUB_OPTION=$QSUB_OPTION
 fi
+if [ -z "$ASSEMBLY_QSUB_OPTION" ]; then
+  ASSEMBLY_QSUB_OPTION=$QSUB_OPTION
+fi
 
 mkdir ${ROOT_DIR}
 mkdir ${ROOT_DIR}/nodes
-mkdir ${ROOT_DIR}/qsub_dir
 mkdir ${ROOT_DIR}/final_tree
 mkdir ${ROOT_DIR}/out
 mkdir ${ROOT_DIR}/err
+mkdir ${ROOT_DIR}/prep_dir
+mkdir ${ROOT_DIR}/qsub_dir
 mkdir ${ROOT_DIR}/executed
 
 # requirement check
@@ -58,59 +67,89 @@ if [ "$ALIGNED" = "unaligned" ]; then
     HMM_ALIGN=$(which hmmalign)
 fi
 
-# if users want to show the calculation progress
-#if [ "${PROGRESS}" = "TRUE" ]; 
-#    while true; do 
-#        echo -n "Number of remaining sequences: "
-#        cat FRACTAL_ML4/nodes/d*/INPUT.fa | grep '>' | wc -l
-#        sleep 60
-#    done &
-#fi
+#<<COMMENTOUT
 
 # setting for the 1st qsub
 mkdir ${ROOT_DIR}/nodes/d0
 
-if [ "$FASTA_or_EDIT" = "fasta" ]; then
-    if [ $( echo ${input_faname} | sed 's/^.*\.\([^\.]*\)$/\1/') = "gz" ]; then
-        cp ${input_faname} ${ROOT_DIR}/nodes/d0/INPUT.fa.gz
-    else
-        cat ${input_faname} | gzip > ${ROOT_DIR}/nodes/d0/INPUT.fa.gz
-    fi
-    wait
-elif [ "$FASTA_or_EDIT" = "edit" ]; then
-    if [ $( echo ${input_faname} | sed 's/^.*\.\([^\.]*\)$/\1/') = "gz" ]; then
-        cp ${input_faname} ${ROOT_DIR}/nodes/d0/INPUT.edit.gz
-    else
-        cat ${input_faname} | gzip > ${ROOT_DIR}/nodes/d0/INPUT.edit.gz
-    fi
-    wait
+if   [ -d ${input_faname} ]; then
+    filepath_list=$(ls ${input_faname}/*)
+elif [ -f ${input_faname} ]; then
+    filepath_list=${input_faname}
 fi
 
-#while [ ! -e ${ROOT_DIR}/nodes/d0/INPUT.fa ]; do
-#  echo "${ROOT_DIR}/nodes/d0/INPUT.fa was not found" 1>&2
-#  cp ${input_faname} ${ROOT_DIR}/nodes/d0/INPUT.fa
-#done
+for input_faname in ${filepath_list}; do 
+    # input gzipped or not
+    if [ $(echo ${input_faname} | sed 's/^.*\.\([^\.]*\)$/\1/') = "gz" ]; then
+        gzip_input="gunzip"
+    else
+        gzip_input="cat"
+    fi
 
+    # output gzipped or not
+    if [ $GZIP_INTERMEDIATE = "TRUE" ]; then
+        gzip_output="gzip"
+        out_extention=".gz"
+    else
+        gzip_output="cat"
+        out_extention=""
+    fi
+
+    # avoid gunzip & gzip
+    if [ $gzip_input = "gunzip" -a $gzip_output = "gzip" ]; then
+        gzip_input="cat"
+        gzip_output="cat"
+    fi
+
+    copied_fpath=${ROOT_DIR}/nodes/d0/$(basename ${input_faname}).${FASTA_or_EDIT}${out_extention}
+
+    cat ${input_faname} | ${gzip_input} | ${gzip_output} > $copied_fpath
+
+    if [ -e $SEQ_NUM_FILE ]; then
+        (echo -ne "${copied_fpath}\t"; cat $SEQ_NUM_FILE | grep $(basename ${input_faname}) | cut -f2) >> ${ROOT_DIR}/nodes/d0/file2Nseq.txt
+    fi
+
+done
+
+wait
 echo "1" >${ROOT_DIR}/NUMFILE
-echo "#!/bin/bash" >${ROOT_DIR}/qsub_dir/qsub_d0.sh
-echo "#$ -S /bin/bash" >>${ROOT_DIR}/qsub_dir/qsub_d0.sh
-echo "export PATH=${PATH}" >>${ROOT_DIR}/qsub_dir/qsub_d0.sh
-if [ "$FASTA_or_EDIT" = "fasta" ]; then
-    echo "python3 ${CODE_DIR}/python/FRACluster.py   ${ROOT_DIR}/nodes/d0 ${num_of_subsample} ${subsample_size} ${ROOT_DIR}/nodes $threshold ${THREADNUM} ${ROOT_DIR}/NUMFILE ${ROOT_DIR}/qsub_dir ${CODE_DIR} $ROOTING $MODEL \"${OPTION}\" ${TREE} ${ALIGNED} $EPANG $RAXMLSEQ $RAXMLPAR $SOFTWARE $max_num_of_jobs 0 \"$SEED\" ${PLACEMENT_METHOD} ${extraction_size} ${careful} ${MAFFT} ${HMM_BUILD} ${HMM_ALIGN} 0" >>${ROOT_DIR}/qsub_dir/qsub_d0.sh
-elif [ "$FASTA_or_EDIT" = "edit" ]; then
-    echo "python3 ${CODE_DIR}/python/FRACluster.2.py ${ROOT_DIR}/nodes/d0 ${num_of_subsample} ${subsample_size} ${ROOT_DIR}/nodes $threshold ${THREADNUM} ${ROOT_DIR}/NUMFILE ${ROOT_DIR}/qsub_dir ${CODE_DIR} $ROOTING $MODEL \"${OPTION}\" ${TREE} ${ALIGNED} $EPANG $RAXMLSEQ $RAXMLPAR $SOFTWARE $max_num_of_jobs 0 \"$SEED\" ${PLACEMENT_METHOD} ${extraction_size} ${careful} ${MAFFT} ${HMM_BUILD} ${HMM_ALIGN} 0" >>${ROOT_DIR}/qsub_dir/qsub_d0.sh
-fi
+echo "#!/bin/bash" >${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
+echo "#$ -S /bin/bash" >>${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
+echo "export PATH=${PATH}" >>${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
+echo "python3 ${CODE_DIR}/python/FRACluster.new.py ${ROOT_DIR}/nodes/d0 ${num_of_subsample} ${subsample_size} ${ROOT_DIR}/nodes $threshold ${THREADNUM} ${ROOT_DIR}/NUMFILE ${ROOT_DIR}/qsub_dir ${CODE_DIR} $ROOTING $MODEL \"${OPTION}\" ${TREE} ${ALIGNED} $EPANG $RAXMLSEQ $RAXMLPAR $SOFTWARE $max_num_of_jobs 0 \"$SEED\" ${PLACEMENT_METHOD} ${extraction_size} ${careful} $FASTA_or_EDIT ${MAFFT} ${HMM_BUILD} ${HMM_ALIGN} 0" >>${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
 
 # first qsub
+
 if [ $max_num_of_jobs -gt 1 ]; then
-  qsub -N ${JOB_NAME} ${INIT_QSUB_OPTION} -o ${ROOT_DIR}/out -e ${ROOT_DIR}/err ${ROOT_DIR}/qsub_dir/qsub_d0.sh # parallel mode
-  wait
+  qsub_err="yet"
+
+#### Trace memory usage and hostname ####
+file=qsub_d0.cycle.sh
+if [ "$benchmark" = "TRUE" ]; then
+    (cat ${ROOT_DIR}/qsub_dir/${file} | sed 's/python3/\/usr\/bin\/time -f "%M,KB,%e,sec," python3/g'; echo "hostname")> ${ROOT_DIR}/qsub_dir/${file}.tmp
+    cp  ${ROOT_DIR}/qsub_dir/${file}.tmp ${ROOT_DIR}/qsub_dir/${file}
+    rm  ${ROOT_DIR}/qsub_dir/${file}.tmp
+fi
+#########################################
+
+  while [ -n "${qsub_err}" ]; do
+    if [ $qsub_err != "yet" ]; then
+        echo ${qsub_err}
+    fi
+    
+    qsub_err=$((qsub -N ${JOB_NAME} ${INIT_QSUB_OPTION} -o ${ROOT_DIR}/out/qsub_d0.cycle.sh.out -e ${ROOT_DIR}/err/qsub_d0.cycle.sh.err ${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh 1> /dev/null) 2>&1)
+
+    wait
+  done
+  echo "qsub... ${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh submitted!" 
 else
-  bash ${ROOT_DIR}/qsub_dir/qsub_d0.sh >${ROOT_DIR}/out/qsub_d0.sh.out 2>${ROOT_DIR}/err/qsub_d0.sh.err # sequential mode
+  bash ${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh >${ROOT_DIR}/out/qsub_d0.cycle.sh.out 2>${ROOT_DIR}/err/qsub_d0.cycle.sh.err # sequential mode
   wait
 fi
-mv ${ROOT_DIR}/qsub_dir/qsub_d0.sh ${ROOT_DIR}/executed/qsub_d0.sh
+mv ${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh ${ROOT_DIR}/executed/qsub_d0.cycle.sh
 sleep 5
+
+#COMMENTOUT
 
 # keep looking over qsub directory & executing qsub until no job is being processed in calculation node
 
@@ -118,13 +157,35 @@ if [ $max_num_of_jobs -gt 1 ]; then # parallel mode
   a=$(qstat | grep ${JOB_NAME} | wc -l)
   b=$(ls ${ROOT_DIR}/qsub_dir | wc -l)
   while [ $(expr $a + $b) -gt 0 ]; do
-    for file in $(ls ${ROOT_DIR}/qsub_dir); do
+    for fpath in $(ls ${ROOT_DIR}/qsub_dir/*placement* 2>/dev/null) $(ls ${ROOT_DIR}/qsub_dir/*partition* 2>/dev/null) $(ls ${ROOT_DIR}/qsub_dir/*cycle* 2>/dev/null); do
+      file=$(basename $fpath)
+
       NUMBER_OF_JOBS=$(qstat | grep ${JOB_NAME} | wc -l)
       wait
       if [ -z $NUMBER_OF_JOBS ]; then NUMBER_OF_JOBS=0; fi
       if [ $NUMBER_OF_JOBS -lt ${max_num_of_jobs} ]; then
-        qsub ${QSUB_OPTION} -N ${JOB_NAME} -o ${ROOT_DIR}/out -e ${ROOT_DIR}/err ${ROOT_DIR}/qsub_dir/${file}
+        qsub_err="yet"
+
+        #### Trace memory usage and hostname####
+        if [ "$benchmark" = "TRUE" ]; then
+            (cat ${ROOT_DIR}/qsub_dir/${file} | sed 's/python3/\/usr\/bin\/time -f "%M,KB,%e,sec," python3/g'; echo ""; echo "hostname") > ${ROOT_DIR}/qsub_dir/${file}.tmp
+            cp  ${ROOT_DIR}/qsub_dir/${file}.tmp ${ROOT_DIR}/qsub_dir/${file}
+            rm  ${ROOT_DIR}/qsub_dir/${file}.tmp
+        fi
+        ########################################
+
+        while [ -n "${qsub_err}" ]; do
+            if [ "$qsub_err" != "yet" ]; then
+                echo ${qsub_err}
+            fi
+            if [ `echo ${file} | grep 'largemem'` ] ; then
+                qsub_err=$((qsub ${INIT_QSUB_OPTION} -N ${JOB_NAME} -o ${ROOT_DIR}/out/${file}.out -e ${ROOT_DIR}/err/${file}.err ${ROOT_DIR}/qsub_dir/${file} 1> /dev/null) 2>&1)
+            else
+                qsub_err=$((qsub ${QSUB_OPTION}      -N ${JOB_NAME} -o ${ROOT_DIR}/out/${file}.out -e ${ROOT_DIR}/err/${file}.err ${ROOT_DIR}/qsub_dir/${file} 1> /dev/null) 2>&1)
+            fi
+        done
         wait
+        echo "qsub... ${ROOT_DIR}/qsub_dir/${file} submitted!" 
         mv ${ROOT_DIR}/qsub_dir/${file} ${ROOT_DIR}/executed/${file}
       fi
     done
@@ -179,8 +240,13 @@ echo "export PATH=${PATH}" >>${ROOT_DIR}/qsub_dir/qsub_assembly.sh
 echo "python3 ${CODE_DIR}/python/TreeAssembly.py ${ROOT_DIR}/nodes/d0 ${ROOT_DIR}/final_tree/HUGE_Result.nwk TRUE" >>${ROOT_DIR}/qsub_dir/qsub_assembly.sh
 echo "echo \"finished\" > ${ROOT_DIR}/final_tree/assembly_flag.txt" >>${ROOT_DIR}/qsub_dir/qsub_assembly.sh
 if [ $max_num_of_jobs -gt 1 ]; then
-  qsub ${QSUB_OPTION} -N ${JOB_NAME} -o ${ROOT_DIR}/out -e ${ROOT_DIR}/err ${ROOT_DIR}/qsub_dir/qsub_assembly.sh
-  wait
+    qsub_err="yet"
+    while [ -n "${qsub_err}" ]; do
+        qsub_err=$((qsub ${ASSEMBLY_QSUB_OPTION} -N ${JOB_NAME} -o ${ROOT_DIR}/out/qsub_assembly.sh.out -e ${ROOT_DIR}/err/qsub_assembly.sh.err ${ROOT_DIR}/qsub_dir/qsub_assembly.sh 1> /dev/null) 2>&1)
+        
+        wait
+    done
+    echo "qsub... ${ROOT_DIR}/qsub_dir/qsub_assembly.sh submitted!" 
 else
   bash ${ROOT_DIR}/qsub_dir/qsub_assembly.sh
   wait

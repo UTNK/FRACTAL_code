@@ -10,6 +10,9 @@ from Bio.SeqRecord import SeqRecord
 import subprocess
 import random
 import gzip
+import partition_sequences
+import shutil
+import glob
 #from memory_profiler import profile
 
 def rooting(nwkfilepath,newnwkpath,root):
@@ -54,16 +57,23 @@ def partition(treefile, edge_to_sequence_file, jpartitionfname, depth):
     ref_tree=Phylo.read(treefile,'newick')
     ref_tree.root_with_outgroup(root)
     
-    # place list
-    place_list=[]
+    # edge2seqlist
+    edge2seqlist = {}
     with open(edge_to_sequence_file,'r') as handle:
         for line in handle:
-            line=line.split("\n")[0]
-            if(len(line)>0): line=line[0:(len(line)-1)];place_list.append(line.split(","))
-            else: place_list.append([])
+            edge = line.split("\t")[0]
+            seq  = line.split("\t")[1].split("\n")[0]
+            if (edge in edge2seqlist.keys()):
+                edge2seqlist[edge].append(seq)
+            else:
+                edge2seqlist[edge] = [seq]
+    for node in ref_tree.get_terminals() + ref_tree.get_nonterminals():
+        if node.name not in edge2seqlist.keys():
+            edge2seqlist[node.name] = []
+        
 
     # get paraphyletic group
-    for seqname in place_list[int(root.strip('{').strip('}'))]:
+    for seqname in edge2seqlist[root]:
         partition[seqname]="paraphyletic"
         paraphyletic.append(seqname)
     # get monophyletic groups
@@ -72,7 +82,7 @@ def partition(treefile, edge_to_sequence_file, jpartitionfname, depth):
         cstate=stack.pop()
         d=len(ref_tree.get_path(cstate)) # current depth
         cedge =int(cstate.name.strip('{').strip('}'))
-        if(place_list[cedge]==[] and d<depth):
+        if(edge2seqlist[cstate.name]==[] and d<depth):
             if(len(cstate.clades)!=0):
                 stack.extend(cstate.clades)
             else:
@@ -82,9 +92,9 @@ def partition(treefile, edge_to_sequence_file, jpartitionfname, depth):
             downstream=[]
             downstream.extend(cstate.get_terminals())
             downstream.extend(cstate.get_nonterminals())
-            downstream_edge=list(int(state.name.strip('{').strip('}')) for state in downstream)
+            downstream_edge=list(state.name for state in downstream)
             for edge in downstream_edge:
-                for seqname in place_list[edge]:
+                for seqname in edge2seqlist[edge]:
                     if seqname != "root":
                         partition[seqname]=cedge
                         if(cedge in leaf_to_Nseq.keys()): leaf_to_Nseq[cedge]+=1
@@ -104,41 +114,61 @@ def partition(treefile, edge_to_sequence_file, jpartitionfname, depth):
         out.write(json.dumps(outputdict))
     return len(paraphyletic), max(list(leaf_to_Nseq.values()))
 
-def add_paraphyletic_fa(jpartfname, outputfname, all_fa, subsample_size, num_of_para, file_format = "fasta"):
+def add_paraphyletic_edit(jpartfname, outputfname, splitted_file_dir, subsample_size, num_of_para):
     # open .jpart file
     with open(jpartfname,"r") as jf:
         jp = jf.read()
     # parse json format
     js = json.loads(jp)
-    # add paraphyletic sequences into subsample
-    with gzip.open(all_fa,'rt') as allfa, gzip.open(outputfname,'at') as out:
-        if (file_format == "fasta"):
-            handle = SeqIO.parse(allfa, "fasta")
-            for record in handle:
-                if(record.id!="root"):
-                    if(js["partition"][record.id]=="paraphyletic"):
-                        SeqIO.write(record, out, "fasta")
-        elif (file_format=="edit"):
-            for line in allfa:
-                name         = line.split()[0]
-                if (name != "root"):
-                    if (len(line.split())>1):
-                        editlist_str = line.split()[1]
-                    else:
-                        editlist_str = ""
-                    if(js["partition"][name]=="paraphyletic"):
-                        out.write(line)
 
-def get_ancseq(ancseq,ancnum):
-    ancname=str(ancnum)
-    with open(ancseq, 'r') as handle:
-        for line in handle:
-            ls=line.split()
-            if(ls[0]==ancname):
-                return ls[1]
-    print("no sequence named "+ancname)
+    all_file_pathlist = []
+    for all_file in os.listdir(splitted_file_dir):
+        if   (all_file.split(".")[-1]=='edit'):
+            all_file_pathlist.append(splitted_file_dir + "/" + all_file)
+        elif (all_file.split(".")[-1]=='gz'):
+            if (all_file.split(".")[-2]=='edit'):
+                all_file_pathlist.append(splitted_file_dir + "/" + all_file)
+    
+    is_gzipped = (all_file_pathlist[0].split(".")[-1] == "gz")
+    if (is_gzipped):
+        out     = gzip.open(outputfname, 'at')
+    else:
+        out     = open(outputfname, 'a')
+    Nwritten = 0
 
-def partition_fasta(in_fasta_list,num_file,OUT_DIR,wd,jpart,info,treefile,subsamplefa,ROOTING,file_format="fasta"):
+    for all_file in all_file_pathlist:
+        is_gzipped = (all_file.split(".")[-1] == "gz")
+        if (is_gzipped):
+            ist   = gzip.open(all_file, 'rt')
+        else:
+            ist   = open(all_file, 'r')
+        for line in ist:
+            name = line.split()[0]
+            if (name != "root"):
+                if (len(line.split())>1):
+                    editlist_str = line.split()[1]
+                else:
+                    editlist_str = ""
+                if(js["partition"][name]=="paraphyletic"):
+                    out.write(line)
+                    Nwritten += 1
+                    if (Nwritten == num_of_para): break
+        ist.close()
+        if (Nwritten == num_of_para): break
+    out.close()
+    
+def partition_fasta(
+    in_fasta_dirlist,
+    num_file,
+    OUT_DIR,
+    wd,
+    jpart,
+    treefile,
+    ROOTING,
+    file_format="fa", 
+    nodenum=1, 
+    codedir=None
+    ):
     # open .jpart file
     with open(jpart,"r") as jf:
         jp = jf.read()
@@ -176,57 +206,165 @@ def partition_fasta(in_fasta_list,num_file,OUT_DIR,wd,jpart,info,treefile,subsam
         DIRdict[leaf.name] = [OUT_DIR+"/d"+str(num+i),0]
         NUMdict[leaf.name.strip('{').strip('}')] = i
         i=i+1
+    
+    dirpath_set = set()
+    with open(wd + "/seqname_dirpath.txt", 'w') as handle:
+        for seqname in list(js["partition"].keys()):
+            if js["partition"][seqname] == "paraphyletic":
+                handle.write(seqname +'\t' + wd + '\tparaphyletic\n')
+            else:
+                dirpath = DIRdict['{'+str(js["partition"][seqname])+'}'][0]
+                dirpath_set.add(dirpath)
+                handle.write(seqname +'\t' + dirpath + '\n')
+    subprocess.call(
+        "cat " + wd + "/seqname_dirpath.txt | cut -f2 | sort | uniq -c > " + wd + "/Nseq_dirpath.txt",
+        shell = True
+    )
 
-    for fasta_count, in_fasta in enumerate(in_fasta_list):
-        ost=[]
-        for i in range(num_mono):
-            ost.append(gzip.open(OUT_DIR+"/d"+str(num+i)+"/"+in_fasta.split("/")[-1],'wt'))
-        para=gzip.open(wd+"/"+in_fasta.split("/")[-1]+".problematic.gz",'wt')
+    for fasta_count, splitted_fasta_dir in enumerate(in_fasta_dirlist):
 
-        if (file_format=="fasta"):
-            with gzip.open(in_fasta,'rt') as in_handle:
-                record = SeqIO.parse(in_handle, "fasta")
-                i=0
-                for s in record:
-                    if(s.id=="root"):
-                        for st in ost: #ROOTING=="Origin"
-                            SeqIO.write(s, st, "fasta")
-                    elif(js["partition"][s.id]=="paraphyletic"):
-                        SeqIO.write(s, para, "fasta")
-                    else:
-                        l = NUMdict[str(js["partition"][s.id])]
-                        if( fasta_count == 0 ):
-                            DIRdict['{'+str(js["partition"][s.id])+'}'][1]+=1
-                        SeqIO.write(s, ost[l], "fasta")
-                    i=i+1
+        is_gzipped = (os.listdir(splitted_fasta_dir)[0].split(".")[-1] == "gz")
+        splitted_fasta_list = os.listdir(splitted_fasta_dir)
+        splitted_fpath_list = [splitted_fasta_dir + "/" + splitted_fasta for splitted_fasta in splitted_fasta_list]
+        Nfiles_total = len(splitted_fasta_list)
+        dirpath_list = list(sorted([wd] + list(dirpath_set)))
+
+        if (is_gzipped):
+            gzip_extention = ".gz"
+            gzip_command   = "|gzip"
+        else:
+            gzip_extention = ""
+            gzip_command   = ""
+
+        if (file_format=="fa"):
+
+            if (nodenum > 1):
+                
+                # assign splitted files to each node: same as distributed placement
+                #Nfiles_per_node = len(splitted_fasta_list) // nodenum # Only the last node may treat more number of files
+                node2filelist = []
+                for i in range(nodenum):
+                    node2filelist.append([])
+                for j, file_name in enumerate(splitted_fasta_list):
+                    node2filelist[j%nodenum].append(file_name)
+
+                dname = wd.split("/")[-1]
+                PATH = (subprocess.\
+                            Popen(
+                                'echo $PATH',
+                                stdout=subprocess.PIPE,
+                                shell=True
+                            ).communicate()[0]
+                        ).decode('utf-8')
+                PATH = (PATH.split('\n'))[0]
+                LD_LIBRARY_PATH = (
+                    subprocess.\
+                        Popen(  
+                            'echo $LD_LIBRARY_PATH', 
+                            stdout=subprocess.PIPE,
+                            shell=True
+                        ).communicate()[0]
+                    ).decode('utf-8')
+                LD_LIBRARY_PATH = (LD_LIBRARY_PATH.split('\n'))[0]
+                for i in range(nodenum):
+                    with open(wd+"/../../prep_dir/qsub_"+dname+"."+str(i)+".partition.sh", 'w') as handle:
+                        handle.write("#!/bin/bash\n")
+                        handle.write("#$ -S /bin/bash\n")
+                        handle.write("PATH={}\n".format(PATH))
+                        handle.write("LD_LIBRARY_PATH={}\n".format(LD_LIBRARY_PATH))
+                        inputFASTA_filepathlist = [splitted_fasta_dir + "/" + splitted_file for splitted_file in node2filelist[i] ]
+                        handle.write(
+                            "python3 "                               +
+                            codedir + "/python/partition_sequences.py "  +
+                            ":".join(inputFASTA_filepathlist) + " "  +
+                            ":".join(dirpath_list)+" "               +
+                            wd + "/seqname_dirpath.txt"              +
+                            "\n"
+                            )
+                        handle.write(
+                            "echo finished > " + splitted_fasta_dir+"/"+dname+"."+str(i)+".partition.sh.finished\n"
+                            )
+                    shutil.move(wd+"/../../prep_dir/qsub_"+dname+"."+str(i)+".partition.sh", wd+"/../../qsub_dir/qsub_"+dname+"."+str(i)+".partition.sh")
+                # wait for all partition jobs finish
+                Nunclassified    = len(os.listdir(splitted_fasta_dir))
+                Nfinished        = 0
+                while(Nunclassified != 0):
+                    file_list= os.listdir(splitted_fasta_dir)
+                    Nunclassified    = 0
+                    Nfinished        = 0
+                    for filename in file_list:
+                        if (filename.split(".")[-1] == 'finished'):
+                            Nfinished += 1
+                        elif (filename.split(".")[-1] == 'fa' or filename.split(".")[-1]=='gz'):
+                            Nunclassified += 1
+                    if (Nunclassified > 0 and Nfinished == nodenum):
+                        subprocess.call(
+                            "mv "+wd+"/../../executed/qsub_"+dname+".*.partition.sh " + wd+"/../../qsub_dir",
+                            shell=True
+                        )
+                        
+            else: # sequential mode
+                partition_sequences.partition_sequences(splitted_fpath_list, dirpath_list, wd + "/seqname_dirpath.txt")
+            problematic_filenames      = wd + "/*.part*fa"+gzip_extention
+            problematic_concatfilename = wd+"/INPUT.fa.problematic"+gzip_extention
+            if (len(glob.glob(problematic_filenames))>0):
+                subprocess.call(
+                    "cat "                                   +
+                    problematic_filenames                    +
+                    "|seqkit grep -r -p ^root -v"            +
+                    ">> " + problematic_concatfilename       + 
+                    " 2> /dev/null;"                         +
+                    "rm " + problematic_filenames            +
+                    " 2> /dev/null",
+                    shell = True
+                    )
+            
+            for dirpath in dirpath_list:
+                if (dirpath != wd):
+                    subprocess.call(
+                        "cat "+wd+"/root.fa > "+dirpath+"/root.fa",
+                        shell=True
+                    )
+
         elif(file_format=="edit"):
-            with gzip.open(in_fasta,'rt') as in_handle:
-                for line in in_handle:
-                    name = line.split()[0]
-                    if(name=="root"):
-                        for st in ost: #ROOTING=="Origin"
-                            st.write(line)
-                    elif(js["partition"][name]=="paraphyletic"):
-                        para.write(line)
-                    else:
-                        l = NUMdict[str(js["partition"][name])]
-                        if( fasta_count == 0 ):
-                            DIRdict['{'+str(js["partition"][name])+'}'][1]+=1
-                        ost[l].write(line)
-        for st in ost:
-            st.close()
-        para.close()
-    with open(info, 'w') as out:
-        out.write(json.dumps(DIRdict))
+            partition_sequences.partition_sequences(splitted_fpath_list, dirpath_list, wd + "/seqname_dirpath.txt", file_format = 'edit')
+            problematic_filenames      = wd + "/*.*edit"                + gzip_extention
+            problematic_concatfilename = wd + "/INPUT.edit.problematic" + gzip_extention
+            if (len(glob.glob(problematic_filenames))>0):
+                subprocess.call(
+                    "cat "                                   +
+                    problematic_filenames                    +
+                    "|seqkit grep -r -p ^root -v"            +
+                    ">> " + problematic_concatfilename       + 
+                    " 2> /dev/null;"                         +
+                    "rm " + problematic_filenames            +
+                    " 2> /dev/null",
+                    shell = True
+                    )
+
+            for dirpath in dirpath_list:
+                if (dirpath != wd):
+                    with open(dirpath+"/root.edit", 'w') as ost:
+                        ost.write("root\t\n")
+
     for leaf in tree.get_terminals():
         newname=DIRdict[leaf.name][0]
         leaf.name=newname
     Phylo.write(tree, treefile, 'newick')
     return DIRdict
 
-def qsub_prep(ARGVS, QSUBDIR, DIRdict, INITIAL_SEQ_COUNT, seq_count_when_aligned):
+def qsub_prep(ARGVS, WD, DIRdict, INITIAL_SEQ_COUNT, seq_count_when_aligned,dirpath2Nseq_filepath,mem_req_threshold):
+
+    dirpath2Nseq = {}
+    with open(dirpath2Nseq_filepath,'r') as handle:
+        for line in handle:
+            dirpath = line.split()[1]
+            Nseq    = int(line.split()[0])
+            dirpath2Nseq[dirpath] = Nseq
+
     for key in DIRdict.keys():
-        ls=DIRdict[key][0].split("/")
+        dirpath = DIRdict[key][0]
+        ls      = DIRdict[key][0].split("/")
         num=ls[len(ls)-1]
         
         PATH = (
@@ -249,38 +387,49 @@ def qsub_prep(ARGVS, QSUBDIR, DIRdict, INITIAL_SEQ_COUNT, seq_count_when_aligned
         
         LD_LIBRARY_PATH = (LD_LIBRARY_PATH.split('\n'))[0]
         
-        with open(QSUBDIR+"/qsub_"+num+".sh", 'w') as qf:
-            qf.write("#!/bin/bash\n")
-            qf.write("#$ -S /bin/bash\n")
-            qf.write("PATH={}\n".format(PATH))
-            qf.write("LD_LIBRARY_PATH={}\n".format(LD_LIBRARY_PATH))
-            
-            # change arguments for the next FRACTAL iteration
-            ARGVS[1]  = DIRdict[key][0]
-            ARGVS[20] = INITIAL_SEQ_COUNT
-            if (ARGVS[14] == "unaligned"):
-                ARGVS[28] = seq_count_when_aligned
+        if (dirpath in dirpath2Nseq.keys()):
+            if (dirpath2Nseq[dirpath] > mem_req_threshold):
+                job_script_filepath = WD+"/../../prep_dir"+"/qsub_"+num+".cycle.largemem.sh"
+            else:
+                job_script_filepath = WD+"/../../prep_dir"+"/qsub_"+num+".cycle.sh"
 
+            with open(job_script_filepath, 'w') as qf:
+                qf.write("#!/bin/bash\n")
+                qf.write("#$ -S /bin/bash\n")
+                qf.write("PATH={}\n".format(PATH))
+                qf.write("LD_LIBRARY_PATH={}\n".format(LD_LIBRARY_PATH))
+                
+                # change arguments for the next FRACTAL iteration
+                ARGVS[1]  = DIRdict[key][0]
+                ARGVS[20] = INITIAL_SEQ_COUNT
+                if (ARGVS[14] == "unaligned"):
+                    ARGVS[29] = seq_count_when_aligned
 
-            command="python3 "
-            for arg in ARGVS: 
-                if str(arg)=="":
-                    arg="\"\""
-                command += str(arg) + " "
-            qf.write(command)
+                command="python3 "
+                for arg in ARGVS: 
+                    if str(arg)=="":
+                        arg="\"\""
+                    command += str(arg) + " "
+                qf.write(command)
+            shutil.move(job_script_filepath, WD+"/../../qsub_dir")
 
 def tiny_tree(INPUTfile,OUTPUTnwk, file_format="fasta"):
-    with gzip.open(INPUTfile,'rt') as handle:
-        names=[]
-        if (file_format == "fasta"):
-            records = SeqIO.parse(handle, "fasta")
-            for record in records:
-                if(record.id!="root"):
-                    names.append(record.id)
-        elif(file_format == "edit"):
-            for line in handle:
-                name = line.split()[0]
-                if (name != "root"): names.append(name)
+    is_gzipped = (INPUTfile.split(".")[-1] == "gz")
+    if is_gzipped:
+        handle  = gzip.open(INPUTfile, 'rt')
+    else:
+        handle  = open(INPUTfile, 'r')
+
+    names=[]
+    if (file_format == "fasta"):
+        records = SeqIO.parse(handle, "fasta")
+        for record in records:
+            if(record.id!="root"):
+                names.append(record.id)
+    elif(file_format == "edit"):
+        for line in handle:
+            name = line.split()[0]
+            if (name != "root"): names.append(name)
 
     if(len(names)==1):
         init_clade = Phylo.BaseTree.Clade(name=names[0])
@@ -293,3 +442,5 @@ def tiny_tree(INPUTfile,OUTPUTnwk, file_format="fasta"):
         print("tiny_tree() Error : len(names)=")
         print(len(names))
     Phylo.write(tree, OUTPUTnwk, 'newick')
+
+    handle.close()

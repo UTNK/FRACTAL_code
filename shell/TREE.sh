@@ -39,6 +39,12 @@ do
   esac
 done
 
+if [ $(echo ${FILE} | sed 's/^.*\.\([^\.]*\)$/\1/') = "gz" ]; then
+    gzip_input="gunzip"
+else
+    gzip_input="cat"
+fi
+
 if [ "$OPTION" = "nothing" ]; then
     OPTION=""
 fi
@@ -48,9 +54,9 @@ cd $WD
 # Alignment
 if [ $ALIGNED = 'aligned' ]; then
     echo "Already aligned!"
-    gunzip -c ${FILE} > ${FILE}.aligned
+    cat ${FILE} | ${gzip_input}> ${FILE}.aligned
 elif [ $ALIGNED = "unaligned" ]; then
-    ${ALIGNER} --quiet <(gunzip -c ${FILE}) > ${FILE}.aligned # set $PATH!!!!!!!!!!
+    ${ALIGNER} --quiet <(cat ${FILE} | ${gzip_input}) > ${FILE}.aligned # set $PATH!!!!!!!!!!
 else
     echo "exception: Alignment method name seems wrong..."
 fi

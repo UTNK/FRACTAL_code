@@ -1,6 +1,7 @@
 #!/bin/bash
 #$ -S /bin/bash
 
+
 CMDNAME="FRACTAL"
 #setting defalt parameter
 
@@ -23,16 +24,20 @@ SEED=0
 MODEL="GTRCAT"
 QSUB_OPTION="" # option of qsub
 INIT_QSUB_OPTION="" # option of qsub
+ASSEMBLY_QSUB_OPTION=""
 JOB_NAME="FRACTAL"
 PLACEMENT_METHOD="ML"
 EXTRACTION_SIZE=10000000000
 ALIGNED="aligned"
 LIMITATION=10000
-FASTA_or_EDIT="fasta"
+FASTA_or_EDIT="fa"
 CAREFUL_PLACEMENT=1
+GZIP_INTERMEDIATE="FALSE"
+SEQ_NUM_FILE="unspecified"
+benchmark="TRUE"
 
 function version {
-  echo "######## FRACTAL v2.4.0 ########"
+  echo "######## FRACTAL v2.5.0 ########"
 }
 
 function usage {
@@ -44,8 +49,9 @@ Usage:
     [-v] [-h] [-i input_file] [-f output_file_path] [-f output_file_name]
     [-u] [-m method] [-a "options"] [-s script_file_name] [-k sequence_number]
     [-b model_name] [-p placement_method] [-x iteration_number] [-t sequence_number]
-    [-d job_number] [-c thread_number] [-e] [-r integer] [-E] [-O qsub_option] 
-    [-I first_qsub_option] [-j job_name] [-l iteration_upper_limit]
+    [-d job_number] [-c thread_number] [-e] [-r integer] [-n file_path] [-E] 
+    [-O qsub_option] [-I first_qsub_option] [-A last_qsub_option] [-j job_name] 
+    [-l iteration_upper_limit] [-g]
 
 Options:
     -v
@@ -91,24 +97,31 @@ Options:
       Output intermediate files
     -r <Integer>
       Seed number for generation of random values. Default: 0
+    -n <String>
+      File path of input sequence number. Default: unspecified
     -E 
       Treat input data as edit list of each sequence
     -O "<String>"
       Options for qsub. Default: ""
-      example:  -O "-pe def_slot 4 -l s_vmem=16G -l mem_req=16G" 
+        example:  -O "-pe def_slot 4 -l s_vmem=16G -l mem_req=16G" 
     -I "<String>"
       Options especially for the first qsub. Default: the string specified by -O
+    -A "<String>"
+      Options especially for the last qsub (tree assembly). 
+        Default: the string specified by -O
     -j "<String>"
       Name of the jobs distributed by FRACTAL. Default: "FRACTAL"
     -l <Integer>
       Maximum number of FRACTAL iterations. Default: 10000
     -z <Integer>
       Number of extracted tips from sample tree. Default: no extraction
+    -g 
+      Gzip intermediate files
 EOF
 }
 
 # read argument
-while getopts i:o:f:s:a:k:b:p:P:x:t:d:c:r:O:I:j:m:l:z:vheuE OPT
+while getopts i:o:f:s:a:k:b:p:P:x:t:d:c:r:n:O:I:A:j:m:l:z:vheugEB OPT
 do
   case $OPT in
     "v" ) version; exit 1;;
@@ -128,14 +141,18 @@ do
     "c" ) FLG_C="TRUE" ; THREADNUM="$OPTARG";;
     "e" ) REMOVE_INTERMEDIATES="FALSE" ;;
     "r" ) FLG_R="TRUE" ; SEED="$OPTARG";;
+    "n" ) FLG_N="TRUE" ; SEQ_NUM_FILE="$OPTARG";;
     "E" ) FLG_E="TRUE" ; FASTA_or_EDIT="edit";;
     "O" ) FLG_O="TRUE" ; QSUB_OPTION="$OPTARG";;
     "I" ) FLG_I="TRUE" ; INIT_QSUB_OPTION="$OPTARG";;
+    "A" ) FLG_A="TRUE" ; ASSEMBLY_QSUB_OPTION="$OPTARG";;
     "j" ) FLG_j="TRUE" ; JOB_NAME="$OPTARG";;
     "m" ) FLG_m="TRUE" ; TREE="$OPTARG";;
     "u" ) FLG_u="TRUE" ; ALIGNED="unaligned";;
     "l" ) FLG_u="TRUE" ; LIMITATION="$OPTARG";;
     "z" ) FLG_z="TRUE" ; EXTRACTION_SIZE="$OPTARG";;
+    "g" ) FLG_g="TRUE" ; GZIP_INTERMEDIATE="TRUE";;
+    "B" ) benchmark="TRUE" ;;
     * ) usage; exit 1;;
   esac
 done
@@ -185,7 +202,7 @@ fi
 echo "Command:"
 echo "$0 $*"
 echo "################################"
-bash ${CODE_DIR}/shell/SUPERVISE.sh ${MAX_ITERATION} ${SUBSAMPLE_SIZE} ${INFILE} ${NAME} ${CODE_DIR} ${OUT_DIR} ${THRESHOLD} ${ROOTING} ${NUM_OF_JOBS} ${TREE} ${THREADNUM} ${SOFTWARE} "${OPTION}" ${MODEL} "${QSUB_OPTION}" "${INIT_QSUB_OPTION}" "${SEED}" "${JOB_NAME}" ${PLACEMENT_METHOD} ${ALIGNED} ${LIMITATION} ${EXTRACTION_SIZE} ${CAREFUL_PLACEMENT} ${FASTA_or_EDIT}
+bash ${CODE_DIR}/shell/SUPERVISE.sh ${MAX_ITERATION} ${SUBSAMPLE_SIZE} ${INFILE} ${NAME} ${CODE_DIR} ${OUT_DIR} ${THRESHOLD} ${ROOTING} ${NUM_OF_JOBS} ${TREE} ${THREADNUM} ${SOFTWARE} "${OPTION}" ${MODEL} "${QSUB_OPTION}" "${INIT_QSUB_OPTION}" "${ASSEMBLY_QSUB_OPTION}" "${SEED}" "${JOB_NAME}" ${PLACEMENT_METHOD} ${ALIGNED} ${LIMITATION} ${EXTRACTION_SIZE} ${CAREFUL_PLACEMENT} ${FASTA_or_EDIT} ${GZIP_INTERMEDIATE} ${SEQ_NUM_FILE} ${benchmark}
 wait
 
 #show result
