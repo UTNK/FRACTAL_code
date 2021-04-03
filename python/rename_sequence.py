@@ -50,7 +50,7 @@ def rename_sequence(in_fname,out_fname,file_format='fa'):
 
     return name2renamed
 
-def outgroup_check_fast(in_fpathlist, file_format):
+def outgroup_check_fast(in_fpathlist, file_format, root_fpath):
     exist_root = False
     for in_fname in in_fpathlist:
         if (exist_root): break
@@ -68,14 +68,12 @@ def outgroup_check_fast(in_fpathlist, file_format):
             for record in records:
                 if (record.name  == "root"):
                     exist_root = True
-                    root_fpath = "/".join(in_fname.split("/")[:-1]) + "/root.fa"
                     SeqIO.write(record, root_fpath, 'fasta')
                     break
         elif (file_format == "edit"):
             for line in origin:
                 if   (line.split()[0]== "root"): 
                     exist_root = True
-                    root_fpath = in_fname.split("/")[-1] + "/root.edit"
                     with open(root_fpath, 'w') as root_handle:
                         root_handle.write(line)
                     break
@@ -140,8 +138,11 @@ def random_sampling( # fasta only
     root_fpath,
     total_seqcount=None, 
     file_format   ="fa",
-    in_fpath      =None
+    in_fpath      =None,
+    #seed = 0
     ):
+    #print("seed",seed)
+    #random.seed(seed)
 
     # set input file path list
     if (in_fpath == None):
@@ -180,9 +181,9 @@ def random_sampling( # fasta only
     seq_set      = set()
     seqname_list = []
     with open(out_fname, 'w') as ost:
-        print(file_format)
+        #print(file_format)
         if (file_format == 'fa'):
-            print(root_fpath)
+            #print(root_fpath)
             # write root sequence
             with open(root_fpath, 'r') as ist:
                 records        = SeqIO.parse(ist, 'fasta')
@@ -215,10 +216,11 @@ def random_sampling( # fasta only
                         if len(local_idx_list) < 1:
                             break 
                         if i == local_idx_list[0]:
-                            seq_set.add(line)
-                            ost.write(line)
-                            seqname_list.append(line.split()[0])
-                            local_idx_list.pop(0)
+                            if line.split()[0] != "s0":
+                                seq_set.add(line)
+                                ost.write(line)
+                                seqname_list.append(line.split()[0])
+                                local_idx_list.pop(0)
                         i += 1
     return seqname_list
 
@@ -273,9 +275,9 @@ def random_sampling_fasta( # fasta only
     seq_set      = set()
     seqname_list = []
     with open(out_fname, 'w') as ost:
-        print(file_format)
+        #print(file_format)
         if (file_format == 'fa'):
-            print(seqname_list)
+            #print(seqname_list)
             # write root sequence
             with open(root_fpath, 'r') as ist:
                 records = SeqIO.parse(ist, 'fasta')

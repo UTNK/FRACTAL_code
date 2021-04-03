@@ -1,7 +1,7 @@
 echo -n "Lineage reconstruction started:  "
 date
 
-if [ $# -ne 28 ]; then
+if [ $# -ne 29 ]; then
   echo "args:$#" 1>&2
   echo "SUPERVISE.sh: wrong number of arguments!" 1>&2
   exit 1
@@ -35,6 +35,7 @@ FASTA_or_EDIT=${25}
 GZIP_INTERMEDIATE=${26}
 SEQ_NUM_FILE=${27}
 benchmark=${28}
+ALIGNMENT_FREQUENCY=${29}
 ROOT_DIR=${DATA_DIR}/${exp_num}
 
 
@@ -71,6 +72,13 @@ fi
 
 # setting for the 1st qsub
 mkdir ${ROOT_DIR}/nodes/d0
+mkdir ${ROOT_DIR}/nodes/d0/INPUT
+mkdir ${ROOT_DIR}/nodes/d0/INPUT/unaligned
+mkdir ${ROOT_DIR}/nodes/d0/INPUT/aligned
+mkdir ${ROOT_DIR}/nodes/d0/INPUT/edit
+mkdir ${ROOT_DIR}/nodes/d0/INPUT/count
+mkdir ${ROOT_DIR}/nodes/d0/INPUT/root
+
 
 if   [ -d ${input_faname} ]; then
     filepath_list=$(ls ${input_faname}/*)
@@ -101,12 +109,28 @@ for input_faname in ${filepath_list}; do
         gzip_output="cat"
     fi
 
-    copied_fpath=${ROOT_DIR}/nodes/d0/$(basename ${input_faname}).${FASTA_or_EDIT}${out_extention}
+    if [ $FASTA_or_EDIT = "edit" ]; then
+
+        copied_fpath=${ROOT_DIR}/nodes/d0/INPUT/edit/$(basename ${input_faname}).${FASTA_or_EDIT}${out_extention}
+
+    elif [ $FASTA_or_EDIT = "fa" ]; then
+
+        if [ $ALIGNED = "unaligned" ]; then
+        
+            copied_fpath=${ROOT_DIR}/nodes/d0/INPUT/unaligned/$(basename ${input_faname}).${FASTA_or_EDIT}${out_extention}
+        
+        else
+
+            copied_fpath=${ROOT_DIR}/nodes/d0/INPUT/aligned/$(basename ${input_faname}).${FASTA_or_EDIT}${out_extention}
+        
+        fi
+
+    fi
 
     cat ${input_faname} | ${gzip_input} | ${gzip_output} > $copied_fpath
 
     if [ -e $SEQ_NUM_FILE ]; then
-        (echo -ne "${copied_fpath}\t"; cat $SEQ_NUM_FILE | grep $(basename ${input_faname}) | cut -f2) >> ${ROOT_DIR}/nodes/d0/file2Nseq.txt
+        (echo -ne "${copied_fpath}\t"; cat $SEQ_NUM_FILE | grep $(basename ${input_faname}) | cut -f2) >> ${ROOT_DIR}/nodes/d0/INPUT/count/file2Nseq.txt
     fi
 
 done
@@ -116,7 +140,7 @@ echo "1" >${ROOT_DIR}/NUMFILE
 echo "#!/bin/bash" >${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
 echo "#$ -S /bin/bash" >>${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
 echo "export PATH=${PATH}" >>${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
-echo "python3 ${CODE_DIR}/python/FRACluster.new.py ${ROOT_DIR}/nodes/d0 ${num_of_subsample} ${subsample_size} ${ROOT_DIR}/nodes $threshold ${THREADNUM} ${ROOT_DIR}/NUMFILE ${ROOT_DIR}/qsub_dir ${CODE_DIR} $ROOTING $MODEL \"${OPTION}\" ${TREE} ${ALIGNED} $EPANG $RAXMLSEQ $RAXMLPAR $SOFTWARE $max_num_of_jobs 0 \"$SEED\" ${PLACEMENT_METHOD} ${extraction_size} ${careful} $FASTA_or_EDIT ${MAFFT} ${HMM_BUILD} ${HMM_ALIGN} 0" >>${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
+echo "python3 ${CODE_DIR}/python/FRACluster.new.py ${ROOT_DIR}/nodes/d0 ${num_of_subsample} ${subsample_size} ${ROOT_DIR}/nodes $threshold ${THREADNUM} ${ROOT_DIR}/NUMFILE ${ROOT_DIR}/qsub_dir ${CODE_DIR} $ROOTING $MODEL \"${OPTION}\" ${TREE} ${ALIGNED} $EPANG $RAXMLSEQ $RAXMLPAR $SOFTWARE $max_num_of_jobs 0 \"$SEED\" ${PLACEMENT_METHOD} ${extraction_size} ${careful} $FASTA_or_EDIT ${ALIGNMENT_FREQUENCY} ${MAFFT} ${HMM_BUILD} ${HMM_ALIGN} 0" >>${ROOT_DIR}/qsub_dir/qsub_d0.cycle.sh
 
 # first qsub
 
@@ -239,6 +263,14 @@ echo "#$ -S /bin/bash" >>${ROOT_DIR}/qsub_dir/qsub_assembly.sh
 echo "export PATH=${PATH}" >>${ROOT_DIR}/qsub_dir/qsub_assembly.sh
 echo "python3 ${CODE_DIR}/python/TreeAssembly.py ${ROOT_DIR}/nodes/d0 ${ROOT_DIR}/final_tree/HUGE_Result.nwk TRUE" >>${ROOT_DIR}/qsub_dir/qsub_assembly.sh
 echo "echo \"finished\" > ${ROOT_DIR}/final_tree/assembly_flag.txt" >>${ROOT_DIR}/qsub_dir/qsub_assembly.sh
+#### Trace memory usage and hostname ####
+file=qsub_assembly.sh
+if [ "$benchmark" = "TRUE" ]; then
+    (cat ${ROOT_DIR}/qsub_dir/${file} | sed 's/python3/\/usr\/bin\/time -f "%M,KB,%e,sec," python3/g'; echo "hostname")> ${ROOT_DIR}/qsub_dir/${file}.tmp
+    cp  ${ROOT_DIR}/qsub_dir/${file}.tmp ${ROOT_DIR}/qsub_dir/${file}
+    rm  ${ROOT_DIR}/qsub_dir/${file}.tmp
+fi
+#########################################
 if [ $max_num_of_jobs -gt 1 ]; then
     qsub_err="yet"
     while [ -n "${qsub_err}" ]; do
@@ -248,7 +280,7 @@ if [ $max_num_of_jobs -gt 1 ]; then
     done
     echo "qsub... ${ROOT_DIR}/qsub_dir/qsub_assembly.sh submitted!" 
 else
-  bash ${ROOT_DIR}/qsub_dir/qsub_assembly.sh
+  bash ${ROOT_DIR}/qsub_dir/qsub_assembly.sh > ${ROOT_DIR}/out/qsub_assembly.sh.out 2> ${ROOT_DIR}/err/qsub_assembly.sh.err
   wait
 fi
 mv ${ROOT_DIR}/qsub_dir/qsub_assembly.sh ${ROOT_DIR}/executed/qsub_assembly.sh

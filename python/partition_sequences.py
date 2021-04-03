@@ -11,7 +11,7 @@ import subprocess
 import random
 import gzip
 
-def classify_sequences(inputFASTA_filehandle, seqname2dirpath, dirpath2filepath, is_gzipped, file_format):
+def classify_sequences(inputFASTA_filehandle, seqname2dirpath, dirpath2filepath, is_gzipped, file_format, data_type):
     # open input FASTAfile
     outfilepath2Nseq = {}
     filepath2handle  = {}
@@ -56,7 +56,10 @@ def classify_sequences(inputFASTA_filehandle, seqname2dirpath, dirpath2filepath,
                 "gzip " + outfilepath,
                 shell=True
                 )
-        with open(outfilepath + ".count", 'w') as numhandle:
+
+        countfilepath = "/".join(outfilepath.split("/")[:-2]) + "/count/" + outfilepath.split("/")[-1] + "." + data_type + ".count"
+
+        with open(countfilepath, 'w') as numhandle:
             if (is_gzipped):
                 numhandle.write(outfilepath + ".gz\t" + str(outfilepath2Nseq[outfilepath]) + "\n")
             else:
@@ -64,6 +67,8 @@ def classify_sequences(inputFASTA_filehandle, seqname2dirpath, dirpath2filepath,
 
 
 def partition_sequences(inputFASTA_filepathlist, outputFASTA_dirpathlist, seqname2dir_filepath, file_format = 'fa'):
+
+    data_type = outputFASTA_dirpathlist[0].split("/")[-1]
 
     seqname_set = set()
     for inputFASTA_filepath in inputFASTA_filepathlist:
@@ -91,7 +96,7 @@ def partition_sequences(inputFASTA_filepathlist, outputFASTA_dirpathlist, seqnam
             seqname  = line.split("\t")[0]
             dirpath  = line.split("\t")[1]
             if seqname in seqname_set:
-                seqname2dirpath[seqname] = dirpath
+                seqname2dirpath[seqname] = dirpath + "/INPUT/" + data_type
 
     for inputFASTA_filepath in inputFASTA_filepathlist:
         if (os.path.exists(inputFASTA_filepath)):
@@ -107,10 +112,14 @@ def partition_sequences(inputFASTA_filepathlist, outputFASTA_dirpathlist, seqnam
                     outputFASTA_filepath = outputFASTA_dirpath + "/" + ".".join(inputFASTA_filepath.split("/")[-1].split(".")[:-1])
                 else:
                     outputFASTA_filepath = outputFASTA_dirpath + "/" + inputFASTA_filepath.split("/")[-1]
+                #print("debug",inputFASTA_filepath, outputFASTA_filepath)
                 dirpath2filepath[outputFASTA_dirpath] = outputFASTA_filepath
 
-            classify_sequences(ist, seqname2dirpath, dirpath2filepath, is_gzipped, file_format = file_format)
+            #print("debug", dirpath2filepath)
+
+            classify_sequences(ist, seqname2dirpath, dirpath2filepath, is_gzipped, file_format = file_format, data_type = data_type)
             ist.close()
+            #print("Remind: Remove undeleted files: partition_sequence.py", file = sys.stderr)
             os.remove(inputFASTA_filepath)
 
 if __name__ == "__main__":

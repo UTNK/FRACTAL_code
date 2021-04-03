@@ -70,7 +70,7 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                             ALIGNED, seed, careful=1, hmm_aligner="", hmm_profiler="",
                             file_format = "fa", edit_list = None, alignment_outdir = None):
     
-    splitted_queryfile_list = os.listdir(query_dir)
+    splitted_queryfile_list = os.listdir(query_dir) # TODO: proper sorting will save runtime
 
     # Profile HMM
     if(ALIGNED=="unaligned"): # for unaligned sequences
@@ -78,9 +78,13 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
         subprocess.call(
             hmm_profiler + " " + 
             refseq+".hmm "     +
-            refseq             ,
+            refseq             +
+            "&> /dev/null"     
+            ,
             shell=True
         ) 
+
+    if (not os.path.exists(alignment_outdir)):
         os.mkdir(alignment_outdir)
 
     # sequential mode
@@ -103,8 +107,8 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                 gunzipcommand = ""
 
             if (file_format == "edit"):
-                manage_edits.edit2fasta(query, outdir + "/" + filename + "/" + filename + ".fa.gz", edit_list) # TO DO
-                query = outdir + "/" + filename + "/" + filename + ".fa.gz"
+                manage_edits.edit2fasta(query, outdir + "/" + filename + "/" + filename + ".fa", edit_list) # TO DO
+                query = outdir + "/" + filename + "/" + filename + ".fa"
 
             if(ML_or_MP=="ML"): 
                 if(ALIGNED=="unaligned"):
@@ -125,27 +129,56 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                             outdir+"/"+filename+"/ref_query.fa", 
                             refseq
                         )
+
                     subprocess.call(
-                        EPANG                                            +
-                        " --redo"                                        +
-                        " -s "+outdir+"/"+filename+"/ref_query.fa.ref"   +
-                        " -t "+reftree                                   +
-                        " --model "+model                                +
-                        " -q "+outdir+"/"+filename+"/ref_query.fa.query" +
-                        " -w "+outdir+"/"+filename                       +
-                        " -T "+str(threadnum)                            ,
+                        "removed_col=$(trimal -sgc "                                             +
+                        "    -in " +outdir+"/"+filename+"/ref_query.fa.ref "                     +
+                        "    |awk ' { if( $2==100 ){ print $1 }}'"                               +
+                        "    |tr \"\\n\" \",\" | sed -e \"s/,\$//\");"        +
+                        "if [ -n \"$removed_col\" ]; then "                                      +
+                        "   trimal "                                                             +
+                        "     -in " + outdir+"/"+filename+"/ref_query.fa "                       +
+                        "     -selectcols { "                                                    +
+                        "     $removed_col "                                                     +
+                        "     } "                                                                +
+                        "   > "+outdir+"/"+filename+"/ref_query.fa.selectcols; "                 +
+                        "else "                                                                  +
+                        "   cat "+outdir+"/"+filename+"/ref_query.fa "                           +
+                        "   > "+outdir+"/"+filename+"/ref_query.fa.selectcols; "                 +
+                        "fi\n",
+                        shell = True
+                        )
+                    divide_ref_and_query.\
+                        divide_fasta_into_ref_and_query(
+                            outdir+"/"+filename+"/ref_query.fa.selectcols", 
+                            refseq
+                        )
+
+
+                    query = outdir+"/"+filename+"/ref_query.fa.selectcols.query"
+                    subprocess.call(
+                        EPANG                                                       +
+                        " --redo"                                                   +
+                        " -s "+outdir+"/"+filename+"/ref_query.fa.selectcols.ref"   +
+                        " -t "+reftree                                              +
+                        " --model "+model                                           +
+                        " -q "+query                                                +
+                        " -w "+outdir+"/"+filename                                  +
+                        " -T "+str(threadnum)                                       +
+                        " &> /dev/null"                                             ,
                         shell=True
                     )
                 elif(ALIGNED=="aligned"): # for aligned sequences
                     subprocess.call(
-                        EPANG                  +
-                        " --redo"              +
-                        " -s "+refseq          +
-                        " -t "+reftree         +
-                        " --model "+model      +
-                        " -q "+query           +
-                        " -w "+outdir+"/"+filename         +
-                        " -T "+str(threadnum)  ,
+                        EPANG                      +
+                        " --redo"                  +
+                        " -s "+refseq              +
+                        " -t "+reftree             +
+                        " --model "+model          +
+                        " -q "+query               +
+                        " -w "+outdir+"/"+filename +
+                        " -T "+str(threadnum)      +
+                        " &> /dev/null"            ,
                         shell=True
                     )
                 jplace_parse.parse_jplace(
@@ -165,50 +198,95 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                         " --mapali "+refseq+" "    +
                         refseq+".hmm "             +
                         query                      +
-                        " | sed 's/\./N/g'> "      +
+                        " | sed 's/\./-/g'> "      +
                         outdir+"/"+filename+"/ref_query.fa"  ,
                         shell=True
                     )  
+                    divide_ref_and_query.\
+                        divide_fasta_into_ref_and_query(
+                            outdir+"/"+filename+"/ref_query.fa", 
+                            refseq
+                        )
+                    subprocess.call(
+                        "removed_col=$(trimal -sgc "                                             +
+                        "    -in " +outdir+"/"+filename+"/ref_query.fa.ref "                     +
+                        "    |awk ' { if( $2==100 ){ print $1 }}'"                               +
+                        "    |tr \"\\n\" \",\" | sed -e \"s/,\$//\");"        +
+                        "if [ -n \"$removed_col\" ]; then "                                      +
+                        "   trimal "                                                             +
+                        "     -in " + outdir+"/"+filename+"/ref_query.fa "                       +
+                        "     -selectcols { "                                                    +
+                        "     $removed_col "                                                     +
+                        "     } "                                                                +
+                        "   > "+outdir+"/"+filename+"/ref_query.fa.selectcols; "                 +
+                        "else "                                                                  +
+                        "   cat "+outdir+"/"+filename+"/ref_query.fa "                           +
+                        "   > "+outdir+"/"+filename+"/ref_query.fa.selectcols; "                 +
+                        "fi\n",
+                        shell = True
+                        )
                 elif(ALIGNED=="aligned"): # for aligned sequences
                     subprocess.call(
                         "(cat "+refseq+"; cat "      +
                         query + gunzipcommand +")"   +
-                        " > "+outdir+"/"+filename+"/ref_query.fa" ,
+                        " > "+outdir+"/"+filename+"/ref_query.fa.selectcols" ,
                         shell=True
                     )
+
+                divide_ref_and_query.\
+                    divide_fasta_into_ref_and_query(
+                        outdir+"/"+filename+"/ref_query.fa.selectcols", 
+                        refseq
+                    )
+
+
+                
+                    
                 os.chdir(outdir+"/"+filename)
                 subprocess.call(
                     RAXMLSEQ                      +
                     " -n epa_result"              +
                     " -f y -m GTRCAT"             +
-                    " -s "+outdir+"/"+filename+"/ref_query.fa" +
-                    " -t "+reftree                ,
+                    " -s "+outdir+"/"+filename+"/ref_query.fa.selectcols" +
+                    " -t "+reftree                +
+                    " &> /dev/null"               ,
                     shell=True
                 )
-                jplace_parse.parse_jplace(
-                    outdir+"/"+filename+"/RAxML_portableTree.epa_result.jplace",
-                    "epa_MP",
-                    outdir+"/"+filename+"/ref_query.fa",
-                    seed,
-                    careful=careful
-                )
+
+                
+                try:
+                    jplace_parse.parse_jplace(
+                        outdir+"/"+filename+"/RAxML_portableTree.epa_result.jplace",
+                        "epa_MP",
+                        outdir+"/"+filename+"/ref_query.fa.selectcols",
+                        seed,
+                        careful=careful
+                    )
+                except:
+                    return 1 # irregular exit code
+                    
             # If HMM alignments were conducted
             if(ALIGNED=="unaligned"):
                 subprocess.call(
-                    "cat " + outdir+"/"+filename+"/ref_query.fa.query" + gzipcommand + ">" + 
-                    alignment_outdir+"/"+filename+".aligned"+extention,
+                    "cat " + outdir+"/"+filename+"/ref_query.fa.selectcols.query" + gzipcommand + ">" + 
+                    alignment_outdir+"/"+filename,
+                    shell = True
+                    )
+                subprocess.call(
+                    "cat " + outdir+"/"+filename+"/ref_query.fa.selectcols.ref | seqkit grep -r -p ^s0 | sed 's/s0/root/g' > " + 
+                    WD + "/INPUT/root/root.aligned.fa",
                     shell = True
                     )
                 shutil.move(
-                    outdir+"/"+filename+"/ref_query.fa.ref", 
+                    outdir+"/"+filename+"/ref_query.fa.selectcols.ref", 
                     WD+"/SUBSAMPLE.fa.aligned"
                     )
         
         subprocess.call(
             "for dir in $(ls "+outdir+"); do "+
-            "   mv "  + outdir + "/${dir}/placement_tree.out "+outdir+"/placement_tree.out;"+
-            "   cat " + outdir + "/${dir}/edge_to_seqname.out >> " + outdir+"/edge_to_seqname_all.out;"        +
-            "   cat " + outdir + "/${dir}/problematic.fa >> " + outdir+"/problematic.fa;"+
+            "   cat " + outdir + "/${dir}/placement_tree.out  >  " + outdir +"/placement_tree.out;"     +
+            "   cat " + outdir + "/${dir}/edge_to_seqname.out >> " + outdir +"/edge_to_seqname_all.out;"+
+            "   cat " + outdir + "/${dir}/problematic.fa      >> " + outdir +"/problematic.fa;"         +
             "done",
             shell=True
             )
@@ -225,7 +303,8 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                 subprocess.call(
                     hmm_profiler+" "+
                     refseq+".hmm "+
-                    refseq,
+                    refseq        +
+                    "&>/dev/null",
                     shell=True
                     )
         elif ( file_format == "edit" ):
@@ -326,15 +405,23 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                                 refseq + "\n"
                                 )
                             handle.write(
-                                "trimal "                                                  +
-                                " -in " + outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa "       +
-                                "-selectcols { "                                           +
-                                "   `trimal -sgc "                                         +
+                                "removed_col=$(trimal -sgc "                                         +
                                 "    -in " +outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.ref " +
                                 "    |awk ' { if( $2==100 ){ print $1 }}'"                 +
-                                "    |tr \"\\n\" \",\" | sed -e \"s/,\$//\" ` "            +
-                                "    } "                                                   +
-                                "> "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols\n"
+                                "    |tr \"\\n\" \",\" | sed -e \"s/,\$//\") \n"
+                                )
+                            handle.write(
+                                "if [ -n \"$removed_col\" ]; then "                                      +
+                                "   trimal "                                                             +
+                                "     -in " + outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa "       +
+                                "     -selectcols { "                                                    +
+                                "     $removed_col "                                                     +
+                                "     } "                                                                +
+                                "   > "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols; " +
+                                "else "                                                                  +
+                                "   cat "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa "           +
+                                "   > "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols; " +
+                                "fi\n"
                                 )
                             handle.write(
                                 "python3 "                                          +
@@ -356,8 +443,9 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                             handle.write(
                                 "cat " + outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols.query" + gzipcommand +
                                 ">" + 
-                                alignment_outdir+"/"+filename+".aligned"+extention+"\n"
+                                alignment_outdir+"/"+filename+"\n"
                                 )
+                            queryfile = outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols.query"
                         elif(ALIGNED=="aligned"): # for aligned sequences
                             handle.write(
                                 EPANG                         +
@@ -406,15 +494,23 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                                 refseq + "\n"
                                 )
                             handle.write(
-                                "trimal "                                                  +
-                                " -in " + outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa "       +
-                                "-selectcols { "                                           +
-                                "   `trimal -sgc "                                         +
+                                "removed_col=$(trimal -sgc "                                         +
                                 "    -in " +outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.ref " +
                                 "    |awk ' { if( $2==100 ){ print $1 }}'"                 +
-                                "    |tr \"\\n\" \",\" | sed -e \"s/,\$//\" ` "            +
-                                "    } "                                                   +
-                                "> "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols\n"
+                                "    |tr \"\\n\" \",\" | sed -e \"s/,\$//\") \n"
+                                )
+                            handle.write(
+                                "if [ -n \"$removed_col\" ]; then "                                      +
+                                "   trimal "                                                             +
+                                "     -in " + outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa "       +
+                                "     -selectcols { "                                                    +
+                                "     $removed_col "                                                     +
+                                "     } "                                                                +
+                                "   > "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols; " +
+                                "else "                                                                  +
+                                "   cat "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa "           +
+                                "   > "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols; " +
+                                "fi\n"
                                 )
                             handle.write(
                                 "python3 "                                          +
@@ -422,6 +518,7 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                                 outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols "+
                                 refseq  + "\n"
                                 )
+                            queryfile = outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols.query"
                         elif(ALIGNED=="aligned"): # for aligned sequences
                             handle.write(
                                 "(cat "+refseq+"; cat "+
@@ -429,6 +526,7 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                                 gunzipcommand    +
                                 ")| sed 's/\./N/g'> "+outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.gap2N.fa\n"
                             )
+                            queryfile = outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.gap2N.fa"
                         handle.write(
                             RAXMLSEQ                                      +
                             " -n epa_result -f y -m GTRCAT"               +
@@ -440,7 +538,7 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                             codedir+"/python/jplace_parse.py "                              +
                             outdir+"/EPANG"+str(i)+"/"+filename+"/RAxML_portableTree.epa_result.jplace " +
                             "epa_MP "                                                       +
-                            outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.gap2N.fa "      +
+                            queryfile + " "                                                 +
                             seed + "\n"
                             )
                         files_to_be_removed = [
@@ -461,7 +559,7 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                                 "cat "                                                               +
                                 outdir+"/EPANG"+str(i)+"/"+filename+"/ref_query.fa.selectcols.query" +
                                 gzipcommand + " > "                                                  +
-                                alignment_outdir+"/"+filename+".aligned" + extention + "\n"          ,
+                                alignment_outdir+"/"+filename + "\n"          ,
                             )
                 handle.write(
                     "echo \"finished\" > "      +
@@ -480,10 +578,6 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
             if i == nodenum:
                 flag=1
         
-        # remove unnecessary files
-        for i in range(nodenum):
-            os.remove(outdir+"/epang"+str(i)+".o")
-        
         if (file_format == "fa"):
             None
         elif (file_format == "edit"):
@@ -497,6 +591,11 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                 "> "+ 
                 WD+"/SUBSAMPLE.fa.aligned",
                 shell=True
+                )
+            subprocess.call(
+                "for file in $(ls "+outdir+"/EPANG0/*/ref_query.fa.selectcols.ref | head -n1); do cat ${file} | seqkit grep -r -p ^s0 | seqkit head -n1 | sed 's/s0/root/g' > " + 
+                WD + "/INPUT/root/root.aligned.fa; done",
+                shell = True
                 )
 
         # merge results
@@ -513,6 +612,8 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
             "done",
             shell=True
             )
+        
+        return 0 # regular exit code
 
 def my_paste(outdir, nodenum, outfilename):
     handles=[]

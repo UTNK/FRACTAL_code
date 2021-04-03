@@ -169,6 +169,9 @@ def partition_fasta(
     nodenum=1, 
     codedir=None
     ):
+
+    
+
     # open .jpart file
     with open(jpart,"r") as jf:
         jp = jf.read()
@@ -195,6 +198,12 @@ def partition_fasta(
         try:
             for i in range(num_mono):
                 os.mkdir(OUT_DIR+"/d"+str(num+i))
+                os.mkdir(OUT_DIR+"/d"+str(num+i)+"/INPUT")
+                os.mkdir(OUT_DIR+"/d"+str(num+i)+"/INPUT/edit")
+                os.mkdir(OUT_DIR+"/d"+str(num+i)+"/INPUT/aligned")
+                os.mkdir(OUT_DIR+"/d"+str(num+i)+"/INPUT/unaligned")
+                os.mkdir(OUT_DIR+"/d"+str(num+i)+"/INPUT/count")
+                os.mkdir(OUT_DIR+"/d"+str(num+i)+"/INPUT/root")
             break
         except Exception as e:
             print(e)
@@ -213,7 +222,7 @@ def partition_fasta(
             if js["partition"][seqname] == "paraphyletic":
                 handle.write(seqname +'\t' + wd + '\tparaphyletic\n')
             else:
-                dirpath = DIRdict['{'+str(js["partition"][seqname])+'}'][0]
+                dirpath = DIRdict['{'+str(js["partition"][seqname])+'}'][0] 
                 dirpath_set.add(dirpath)
                 handle.write(seqname +'\t' + dirpath + '\n')
     subprocess.call(
@@ -222,6 +231,12 @@ def partition_fasta(
     )
 
     for fasta_count, splitted_fasta_dir in enumerate(in_fasta_dirlist):
+        print("Partitioning sequences...")
+
+        # edit, unaligned, or aligned
+        data_type = splitted_fasta_dir.split("/")[-2]
+
+        print("Target:"+str(fasta_count), splitted_fasta_dir, "is", data_type)
 
         is_gzipped = (os.listdir(splitted_fasta_dir)[0].split(".")[-1] == "gz")
         splitted_fasta_list = os.listdir(splitted_fasta_dir)
@@ -277,7 +292,7 @@ def partition_fasta(
                             "python3 "                               +
                             codedir + "/python/partition_sequences.py "  +
                             ":".join(inputFASTA_filepathlist) + " "  +
-                            ":".join(dirpath_list)+" "               +
+                            ":".join([ dirpath+ "/INPUT/" + data_type for dirpath in dirpath_list ])+" "+
                             wd + "/seqname_dirpath.txt"              +
                             "\n"
                             )
@@ -288,7 +303,7 @@ def partition_fasta(
                 # wait for all partition jobs finish
                 Nunclassified    = len(os.listdir(splitted_fasta_dir))
                 Nfinished        = 0
-                while(Nunclassified != 0):
+                while(Nfinished < nodenum):
                     file_list= os.listdir(splitted_fasta_dir)
                     Nunclassified    = 0
                     Nfinished        = 0
@@ -297,38 +312,41 @@ def partition_fasta(
                             Nfinished += 1
                         elif (filename.split(".")[-1] == 'fa' or filename.split(".")[-1]=='gz'):
                             Nunclassified += 1
-                    if (Nunclassified > 0 and Nfinished == nodenum):
-                        subprocess.call(
-                            "mv "+wd+"/../../executed/qsub_"+dname+".*.partition.sh " + wd+"/../../qsub_dir",
-                            shell=True
-                        )
+                    #if (Nunclassified > 0 and Nfinished == nodenum):
+                    #    subprocess.call(
+                    #        "mv "+wd+"/../../executed/qsub_"+dname+".*.partition.sh " + wd+"/../../qsub_dir",
+                    #        shell=True
+                    #    )
                         
             else: # sequential mode
-                partition_sequences.partition_sequences(splitted_fpath_list, dirpath_list, wd + "/seqname_dirpath.txt")
-            problematic_filenames      = wd + "/*.part*fa"+gzip_extention
-            problematic_concatfilename = wd+"/INPUT.fa.problematic"+gzip_extention
-            if (len(glob.glob(problematic_filenames))>0):
-                subprocess.call(
-                    "cat "                                   +
-                    problematic_filenames                    +
-                    "|seqkit grep -r -p ^root -v"            +
-                    ">> " + problematic_concatfilename       + 
-                    " 2> /dev/null;"                         +
-                    "rm " + problematic_filenames            +
-                    " 2> /dev/null",
-                    shell = True
-                    )
+                partition_sequences.partition_sequences(splitted_fpath_list, [ dirpath+ "/INPUT/" + data_type for dirpath in dirpath_list ], wd + "/seqname_dirpath.txt")
             
-            for dirpath in dirpath_list:
-                if (dirpath != wd):
+            if (fasta_count == 0):
+                problematic_filenames      = wd + "/INPUT/"+data_type+"/*.part*fa"+gzip_extention
+                problematic_concatfilename = wd+"/INPUT.fa.problematic"+gzip_extention
+                if (len(glob.glob(problematic_filenames))>0):
                     subprocess.call(
-                        "cat "+wd+"/root.fa > "+dirpath+"/root.fa",
-                        shell=True
-                    )
+                        "cat "                                   +
+                        problematic_filenames                    +
+                        "|seqkit grep -r -p ^root -v"            +
+                        ">> " + problematic_concatfilename       + 
+                        " 2> /dev/null;"                         +
+                        "rm " + problematic_filenames            +
+                        " 2> /dev/null",
+                        shell = True
+                        )
+                
+                for dirpath in dirpath_list:
+                    if (dirpath != wd):
+                        subprocess.call(
+                            "cat "+wd+"/INPUT/root/root.fa         > "+dirpath+"/INPUT/root/root.fa;       " +
+                            "if [ -e "+wd+"/INPUT/root/root.aligned.fa ]; then cat "+wd+"/INPUT/root/root.aligned.fa > "+dirpath+"/INPUT/root/root.aligned.fa; fi",
+                            shell=True
+                        )
 
         elif(file_format=="edit"):
-            partition_sequences.partition_sequences(splitted_fpath_list, dirpath_list, wd + "/seqname_dirpath.txt", file_format = 'edit')
-            problematic_filenames      = wd + "/*.*edit"                + gzip_extention
+            partition_sequences.partition_sequences(splitted_fpath_list, [ dirpath+ "/INPUT/" + data_type for dirpath in dirpath_list ], wd + "/seqname_dirpath.txt", file_format = 'edit')
+            problematic_filenames      = wd + "/INPUT/"+data_type+"/*.*edit" + gzip_extention
             problematic_concatfilename = wd + "/INPUT.edit.problematic" + gzip_extention
             if (len(glob.glob(problematic_filenames))>0):
                 subprocess.call(
@@ -338,8 +356,8 @@ def partition_fasta(
                     ">> " + problematic_concatfilename       + 
                     " 2> /dev/null;"                         +
                     "rm " + problematic_filenames            +
-                    " 2> /dev/null",
-                    shell = True
+                    " 2> /dev/null"
+                    ,shell = True
                     )
 
             for dirpath in dirpath_list:
@@ -403,7 +421,7 @@ def qsub_prep(ARGVS, WD, DIRdict, INITIAL_SEQ_COUNT, seq_count_when_aligned,dirp
                 ARGVS[1]  = DIRdict[key][0]
                 ARGVS[20] = INITIAL_SEQ_COUNT
                 if (ARGVS[14] == "unaligned"):
-                    ARGVS[29] = seq_count_when_aligned
+                    ARGVS[30] = seq_count_when_aligned
 
                 command="python3 "
                 for arg in ARGVS: 

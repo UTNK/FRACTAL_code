@@ -36,7 +36,7 @@ def correspond(treestr):
     return [corr,root]
 
 def parse_jplace(fname, placement_method, infasta_fpath, seed, careful=1):
-    if(len(seed)!=0):random.seed(int(seed))
+    #if(len(seed)!=0):random.seed(int(seed))
     with open(fname,"r") as jf:
         jp = jf.read()
     # parse json format
@@ -88,13 +88,6 @@ def parse_jplace(fname, placement_method, infasta_fpath, seed, careful=1):
 
     with open('placement_tree.out','w') as handle:
         handle.write(treestr)
-    '''
-    with open("edge_to_seqname.out",'w') as handle:
-        for seqnamelist in placement_list:
-            for seqname in seqnamelist:
-                handle.write(seqname+",")
-            handle.write("\n")
-    '''
     with open("edge_to_seqname.out",'w') as handle:
         for i, seqnamelist in enumerate(placement_list):
             for seqname in seqnamelist:
@@ -105,6 +98,7 @@ def parse_jplace(fname, placement_method, infasta_fpath, seed, careful=1):
     else:
         infasta_handle = open(infasta_fpath, 'r')
     with open("problematic.fa", 'w') as handle:
+        print("writing problematic.fa...", file = sys.stdout)
         records = SeqIO.parse(infasta_handle,'fasta')
         for record in records:
             if(record.name in problematic_set):
