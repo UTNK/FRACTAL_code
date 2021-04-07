@@ -349,7 +349,6 @@ def FRACluster(ARGVS, WD, MAX_ITERATION, SUBSAMPLE_SIZE, NODESDIR, THRESHOLD, TH
 
             #print ("debug", file_pathlist_to_be_splitted)
             
-
             splitted_dirpath_set = set()
 
             split_was_done = os.path.exists(example_infile_fpath + ".split")
@@ -592,6 +591,17 @@ def FRACluster(ARGVS, WD, MAX_ITERATION, SUBSAMPLE_SIZE, NODESDIR, THRESHOLD, TH
                     " &> /dev/null"                                                 ,
                     shell=True
                 )
+
+            ############Code Ocean
+            prev_size = 0
+            for _ in range(100):
+                if os.path.exists(WD+"/PARAM/RAxML_result.PARAM_"+str(i)):
+                    size = os.path.getsize(WD+"/PARAM/RAxML_result.PARAM_"+str(i))
+                    if (size > 0 and prev_size == size):
+                        break
+                    prev_size = size
+                time.sleep(5)
+            ############
             
             # if parameter optimization failed
             if (not os.path.isfile(WD+"/PARAM/RAxML_result.PARAM_"+str(i))):
@@ -845,7 +855,7 @@ def FRACluster(ARGVS, WD, MAX_ITERATION, SUBSAMPLE_SIZE, NODESDIR, THRESHOLD, TH
 
     
     subprocess.call(
-        "rm -r " + " ".join(filenames+dirnames) + " &> /dev/null",
+        "rm -r " + " ".join(filenames+dirnames) + " &> /dev/null", 
         shell = True
         )
     

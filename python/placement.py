@@ -84,6 +84,18 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
             shell=True
         ) 
 
+        ############Code Ocean
+        import time
+        prev_size = 0
+        for _ in range(100):
+            if os.path.exists(refseq+".hmm"):
+                size = os.path.getsize(refseq+".hmm")
+                if (size > 0 and prev_size == size):
+                    break
+                prev_size = size
+            time.sleep(5)
+        ############
+
     if (not os.path.exists(alignment_outdir)):
         os.mkdir(alignment_outdir)
 
@@ -124,6 +136,19 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                         outdir+"/"+filename+"/ref_query.fa"
                         ,shell=True
                     )
+
+                    ############Code Ocean
+                    import time
+                    prev_size = 0
+                    for _ in range(100):
+                        if os.path.exists(outdir+"/"+filename+"/ref_query.fa"):
+                            size = os.path.getsize(outdir+"/"+filename+"/ref_query.fa")
+                            if (size > 0 and prev_size == size):
+                                break
+                            prev_size = size
+                        time.sleep(5)
+                    ############
+
                     divide_ref_and_query.\
                         divide_fasta_into_ref_and_query(
                             outdir+"/"+filename+"/ref_query.fa", 
@@ -148,6 +173,20 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                         "fi\n",
                         shell = True
                         )
+
+
+                    ############Code Ocean
+                    import time
+                    prev_size = 0
+                    for _ in range(100):
+                        if os.path.exists(outdir+"/"+filename+"/ref_query.fa.selectcols"):
+                            size = os.path.getsize(outdir+"/"+filename+"/ref_query.fa.selectcols")
+                            if (size > 0 and prev_size == size):
+                                break
+                            prev_size = size
+                        time.sleep(5)
+                    ############
+
                     divide_ref_and_query.\
                         divide_fasta_into_ref_and_query(
                             outdir+"/"+filename+"/ref_query.fa.selectcols", 
@@ -181,6 +220,19 @@ def distributed_placement(  WD, EPANG, refseq, reftree, model,
                         " &> /dev/null"            ,
                         shell=True
                     )
+
+                ############Code Ocean
+                import time
+                prev_size = 0
+                for _ in range(100):
+                    time.sleep(5)
+                    if os.path.exists(outdir+"/"+filename+"/epa_result.jplace"):
+                        size = os.path.getsize(outdir+"/"+filename+"/epa_result.jplace")
+                        if (size > 0 and prev_size == size):
+                            break
+                        prev_size = size
+                ############
+
                 jplace_parse.parse_jplace(
                     outdir+"/"+filename+"/epa_result.jplace",
                     "epa-ng",
