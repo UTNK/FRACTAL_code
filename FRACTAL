@@ -34,7 +34,7 @@ FASTA_or_EDIT="fa"
 CAREFUL_PLACEMENT=1
 GZIP_INTERMEDIATE="FALSE"
 SEQ_NUM_FILE="unspecified"
-benchmark="TRUE"
+benchmark="FALSE"
 ALIGNMENT_FREQUENCY=0.5
 
 function version {
